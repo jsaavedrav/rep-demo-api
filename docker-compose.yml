@@ -1,0 +1,57 @@
+# Entorno local completo: SQL Server + carga de esquema y datos + API.
+# Uso:  cp .env.example .env   (y define MSSQL_SA_PASSWORD)
+#       docker compose up --build
+# API en http://localhost:3000/api  (usuario simulado: DEV_USER_EMAIL)
+
+services:
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64 # en Mac Apple Silicon corre emulado
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD:?Define MSSQL_SA_PASSWORD en .env}
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql-data:/var/opt/mssql
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -Q "SELECT 1" -b -o /dev/null
+      interval: 5s
+      retries: 30
+
+  # Crea la base y ejecuta los scripts (son idempotentes: se puede repetir sin duplicar).
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    depends_on:
+      sql:
+        condition: service_healthy
+    environment:
+      MSSQL_SA_PASSWORD: ${MSSQL_SA_PASSWORD}
+    volumes:
+      - ./db:/db:ro
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        q() { /opt/mssql-tools18/bin/sqlcmd -C -b -S sql -U sa -P "$${MSSQL_SA_PASSWORD}" "$$@"; }
+        q -Q "IF DB_ID('repdb') IS NULL CREATE DATABASE repdb"
+        q -d repdb -i /db/01-ddl.sql
+        q -d repdb -i /db/02-dml-datos-iniciales.sql
+        echo "Base repdb lista"
+
+  api:
+    build: .
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: development
+      SQL_CONNECTION_STRING: Server=sql,1433;Database=repdb;User ID=sa;Password=${MSSQL_SA_PASSWORD};Encrypt=True;TrustServerCertificate=True;Connection Timeout=60
+      DEV_USER_EMAIL: ${DEV_USER_EMAIL:-admin@demo.cl}
+    ports:
+      - "3000:3000"
+
+volumes:
+  sql-data:
