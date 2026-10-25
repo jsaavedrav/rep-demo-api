@@ -7,7 +7,7 @@ export class NuevoComponenteDto {
   @IsString() @Length(1, 20) programaId: string;
   @IsString() @Length(1, 50) sku: string;
   @IsString() @Length(1, 150) nombre: string;
-  @IsObject() atributos: Record<string, string>;
+  @IsObject() atributos: Record<string, string | number>;
   @IsOptional() @IsNumber() @IsPositive() pesoKg: number | null;
 }
 

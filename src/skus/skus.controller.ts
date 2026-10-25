@@ -1,22 +1,18 @@
 import { Body, Controller, Get, Param, ParseArrayPipe, ParseIntPipe, Patch, Post, type Type } from '@nestjs/common';
 import { RequierePermiso, UsuarioAutenticado, type UsuarioActual } from '../auth/decoradores.js';
 import { ActualizarPesoDto, NuevoComponenteDto } from './skus.dto.js';
-import { SkusRepository } from './skus.repository.js';
 import { SkusService } from './skus.service.js';
 
 const filas = (items: Type) => new ParseArrayPipe({ items, whitelist: true, forbidNonWhitelisted: true });
 
 @Controller()
 export class SkusController {
-  constructor(
-    private readonly service: SkusService,
-    private readonly skus: SkusRepository,
-  ) {}
+  constructor(private readonly service: SkusService) {}
 
   @Get('programas/:programaId/skus')
   @RequierePermiso('informes.ver')
-  listar(@Param('programaId') programaId: string) {
-    return this.skus.listar(programaId);
+  listar(@Param('programaId') programaId: string, @UsuarioAutenticado() usuario: UsuarioActual) {
+    return this.service.listar(programaId, usuario);
   }
 
   @Post('skus/importar')

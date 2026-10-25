@@ -6,7 +6,7 @@ import { AuthGuard } from './auth.guard.js';
 import { PERMISOS, PUBLICO, UsuarioActual } from './decoradores.js';
 
 const operador: UsuarioActual = {
-  id: '2', email: 'operador@demo.cl', nombre: 'Operador', perfil: 'operador',
+  id: '2', email: 'operador@demo.cl', nombre: 'Operador', perfil: 'operador', programas: ['env', 'neu'],
   permisos: ['sku.importar', 'sku.pesos', 'informes.ver', 'informes.exportar'],
 };
 

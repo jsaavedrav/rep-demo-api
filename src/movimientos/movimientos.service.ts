@@ -1,9 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
+import { exigirAcceso } from '../auth/acceso.js';
 import { UsuarioActual } from '../auth/decoradores.js';
-import { ErrorFila, rechazarSiHayErrores, validarCantidad } from '../importacion.js';
+import { ResultadoImportacionVentas } from '../dominio/models.js';
+import { rechazarSiHayErrores, validarCantidad } from '../importacion.js';
 import { ProgramasRepository } from '../programas/programas.repository.js';
-import { NuevoMovimientoDto } from './movimientos.dto.js';
 import { MovimientosRepository } from './movimientos.repository.js';
+import { FilaVentaDto } from './ventas.dto.js';
+import { generarCsv } from './exportacion.js';
+import { validarVentas } from './ventas.validacion.js';
 
 @Injectable()
 export class MovimientosService {
@@ -12,23 +16,37 @@ export class MovimientosService {
     private readonly programas: ProgramasRepository,
   ) {}
 
-  async importar(items: NuevoMovimientoDto[], usuario: UsuarioActual) {
-    validarCantidad(items);
-    const programaId = items[0].programaId;
-    const errores: ErrorFila[] = [];
+  async listar(programaId: string, usuario: UsuarioActual) {
+    exigirAcceso(usuario, programaId);
+    return this.movimientos.listar(programaId);
+  }
 
-    if (!(await this.programas.obtener(programaId))) {
-      errores.push({ fila: 1, mensaje: `Programa "${programaId}" no existe` });
-    } else {
-      const skus = await this.movimientos.skusExistentes(programaId);
-      items.forEach((m, i) => {
-        if (m.programaId !== programaId) errores.push({ fila: i + 1, mensaje: 'Todas las filas deben ser del mismo programa' });
-        else if (!skus.has(m.sku)) errores.push({ fila: i + 1, mensaje: `SKU "${m.sku}" no existe en el catálogo` });
-        else if (isNaN(Date.parse(m.fecha))) errores.push({ fila: i + 1, mensaje: `Fecha inválida: "${m.fecha}"` });
-      });
-    }
-    rechazarSiHayErrores(errores);
+  /** CSV con los datos de introducción al mercado, para importar en Power BI. */
+  async exportarCsv(programaId: string, usuario: UsuarioActual) {
+    exigirAcceso(usuario, programaId);
+    const programa = await this.programas.obtener(programaId);
+    if (!programa) throw new BadRequestException(`Programa "${programaId}" no existe`);
+    return generarCsv(programa, await this.movimientos.exportar(programaId));
+  }
 
-    return this.movimientos.importar(programaId, items, usuario.id);
+  /**
+   * Importación unificada (planilla de ventas / aduana). Todo o nada: si una fila tiene errores
+   * no se guarda ninguna. Las advertencias no bloquean y se devuelven en la respuesta.
+   */
+  async importarVentas(filas: FilaVentaDto[], usuario: UsuarioActual): Promise<ResultadoImportacionVentas> {
+    validarCantidad(filas);
+    const programaId = filas[0].programaId;
+    exigirAcceso(usuario, programaId);
+
+    const programa = await this.programas.obtener(programaId);
+    if (!programa) throw new BadRequestException(`Programa "${programaId}" no existe`);
+    if (!programa.configurado) throw new BadRequestException(`${programa.nombre} aún no está configurado`);
+
+    const existentes = await this.movimientos.componentesDe(programaId, filas.map((f) => f.sku));
+    const v = validarVentas(programa, filas, existentes);
+    rechazarSiHayErrores(v.errores);
+
+    const r = await this.movimientos.importarVentas(programaId, filas, v.skus, usuario.id);
+    return { ...r, advertencias: v.advertencias };
   }
 }

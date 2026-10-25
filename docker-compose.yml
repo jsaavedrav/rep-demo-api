@@ -38,7 +38,8 @@ services:
         q() { /opt/mssql-tools18/bin/sqlcmd -C -b -S sql -U sa -P "$${MSSQL_SA_PASSWORD}" "$$@"; }
         q -Q "IF DB_ID('repdb') IS NULL CREATE DATABASE repdb"
         q -d repdb -i /db/01-ddl.sql
-        q -d repdb -i /db/02-dml-datos-iniciales.sql
+        q -d repdb -i /db/02-dml-datos-maestros.sql
+        q -d repdb -i /db/03-dml-datos-ejemplo.sql
         echo "Base repdb lista"
 
   api:

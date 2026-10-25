@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { exigirAcceso } from '../auth/acceso.js';
 import { UsuarioActual } from '../auth/decoradores.js';
+import { validarAtributos } from '../dominio/atributos.js';
 import { ErrorFila, rechazarSiHayErrores, validarCantidad } from '../importacion.js';
 import { ProgramasRepository } from '../programas/programas.repository.js';
 import { NuevoComponenteDto } from './skus.dto.js';
@@ -12,6 +14,7 @@ export class SkusService {
     private readonly programas: ProgramasRepository,
   ) {}
 
+  /** Importación del catálogo con componentes (útil para envases: botella, tapa...). */
   async importar(items: NuevoComponenteDto[], usuario: UsuarioActual) {
     validarCantidad(items);
     const programas = new Map((await this.programas.listar()).map((p) => [p.id, p]));
@@ -21,10 +24,10 @@ export class SkusService {
     items.forEach((item, i) => {
       const p = programas.get(item.programaId);
       if (!p) return errores.push({ fila: i + 1, mensaje: `Programa "${item.programaId}" no existe` });
-      for (const [clave, valor] of Object.entries(item.atributos)) {
-        if (!(clave in p.atributos)) errores.push({ fila: i + 1, mensaje: `Atributo "${clave}" no existe en ${p.nombre}` });
-        else if (typeof valor !== 'string' || valor.length > 100) errores.push({ fila: i + 1, mensaje: `Valor inválido en "${clave}"` });
-      }
+      exigirAcceso(usuario, p.id);
+      const r = validarAtributos(p.definicionAtributos, item.atributos, true);
+      r.errores.forEach((mensaje) => errores.push({ fila: i + 1, mensaje }));
+      item.atributos = r.valores;
       return;
     });
     rechazarSiHayErrores(errores);
@@ -32,9 +35,16 @@ export class SkusService {
     return this.skus.importar(items, usuario.id);
   }
 
+  async listar(programaId: string, usuario: UsuarioActual) {
+    exigirAcceso(usuario, programaId);
+    return this.skus.listar(programaId);
+  }
+
+  /** Ingresa el peso vigente y completa los registros que estaban pendientes de ese componente. */
   async actualizarPeso(id: number, pesoKg: number, usuario: UsuarioActual) {
-    const c = await this.skus.actualizarPeso(id, pesoKg, usuario.id);
-    if (!c) throw new NotFoundException(`Componente ${id} no existe`);
-    return c;
+    const programaId = await this.skus.programaDe(id);
+    if (!programaId) throw new NotFoundException(`Componente ${id} no existe`);
+    exigirAcceso(usuario, programaId);
+    return (await this.skus.actualizarPeso(id, pesoKg, usuario.id))!;
   }
 }

@@ -21,8 +21,10 @@ src/
 ├── importacion.ts            reglas comunes de importación (máx. filas, todo o nada)
 ├── usuarios/  programas/     controller → repository  (lecturas simples)
 ├── skus/  movimientos/       controller → service → repository  (con reglas de negocio)
+├── gestion/                  kilos gestionados, tarifas, metas y parámetros
+├── dominio/atributos.ts      validación de atributos y reglas por producto (DS 8: categoría según aro)
 └── health.controller.ts      /api/health para Container Apps (no toca la base)
-db/                           DDL, DML y consultas de referencia (ver db/README.md)
+db/                           DDL, datos maestros, datos de ejemplo y consultas de indicadores (ver db/README.md)
 ```
 
 **Capas:**
@@ -32,17 +34,34 @@ db/                           DDL, DML y consultas de referencia (ver db/README.
 
 ## Endpoints
 
+Todas las rutas con `:id` de programa exigen además que el usuario tenga **acceso a ese producto prioritario** (`rep.usuario_programa`).
+
 | Método | Ruta | Permiso | Descripción |
 |---|---|---|---|
 | GET | `/api/health` | público | Sonda de vida |
-| GET | `/api/usuarios/me` | sesión | Usuario actual y sus permisos |
+| GET | `/api/usuarios/me` | sesión | Usuario actual, permisos y productos prioritarios |
 | GET | `/api/usuarios` | `usuarios.ver` | Lista de usuarios |
-| GET | `/api/programas` | sesión | Programas REP con sus atributos |
-| GET | `/api/programas/:id/skus` | `informes.ver` | Componentes de SKU del programa |
-| POST | `/api/skus/importar` | `sku.importar` | Crea o actualiza componentes (arreglo JSON) |
-| PATCH | `/api/skus/:id` | `sku.pesos` | Ingresa el peso `{ "pesoKg": 0.025 }` |
-| GET | `/api/programas/:id/movimientos` | `informes.ver` | Unidades del programa |
-| POST | `/api/movimientos/importar` | `sku.importar` | Crea o actualiza movimientos (arreglo JSON) |
+| GET | `/api/programas` | sesión | Los 6 productos prioritarios, con `acceso` y `configurado` |
+| POST | `/api/ventas/importar` | `sku.importar` | **Importación unificada** (planilla de ventas / aduana): crea SKUs y registra unidades |
+| GET | `/api/programas/:id/movimientos` | `informes.ver` | Registros con su peso congelado por componente |
+| GET | `/api/programas/:id/export/datos.csv` | `informes.exportar` | CSV para Power BI (columnas de la especificación) |
+| GET | `/api/programas/:id/skus` | `informes.ver` | Componentes de SKU con su peso vigente |
+| POST | `/api/skus/importar` | `sku.importar` | Catálogo con componentes (envases: botella, tapa...) |
+| PATCH | `/api/skus/:id` | `sku.pesos` | Ingresa el peso `{ "pesoKg": 9.1 }` y completa los registros pendientes |
+| GET | `/api/programas/:id/gestion` | `informes.ver` | Kilos gestionados (GRANSIC / SISREP) |
+| POST / DELETE | `/api/gestion`, `/api/gestion/:id` | `gestion.ingresar` | Ingreso manual de kilos gestionados |
+| GET | `/api/programas/:id/tarifas` | `informes.ver` | Tarifas de gestión (CLP/kg) |
+| POST / DELETE | `/api/tarifas`, `/api/tarifas/:id` | `gestion.ingresar` | Ingreso manual de tarifas por compra |
+| GET | `/api/programas/:id/metas` | `informes.ver` | Metas del DS 8 por categoría, tipo y año |
+| GET | `/api/programas/:id/parametros` | `informes.ver` | Factor de desgaste, IVA (con vigencia) |
+
+**Importación de ventas (`POST /api/ventas/importar`):**
+- **Cuerpo:** arreglo de filas `{ programaId, idOrigen?, documento (DIN), fecha, sucursal?, proveedor?, sku, descripcion?, atributos?, unidades, pesoKg? }`.
+- **SKU nuevo:** se crea; debe traer todos los atributos obligatorios del programa.
+- **SKU existente:** los atributos son opcionales y se actualizan con los que vengan.
+- **Peso de cada registro:** el de la planilla; si no viene, el vigente del SKU; si tampoco hay, queda **pendiente** (no suma masa) y se informa en `pendientesPeso`.
+- **Re-importar:** con `idOrigen` se actualiza el mismo registro; sin él, se reconoce por DIN + SKU + fecha + sucursal.
+- **Advertencias (no bloquean):** categoría que no corresponde al aro según el DS 8 (A bajo 57", B desde 57"), o peso de la planilla distinto del vigente.
 
 **Reglas de las importaciones:**
 - **Todo o nada:** si alguna fila tiene errores, no se guarda ninguna y se responde `400` con la lista `errores: [{ fila, mensaje }]`.
@@ -51,7 +70,9 @@ db/                           DDL, DML y consultas de referencia (ver db/README.
 **Respuestas de autorización:**
 - Sin sesión → `401`.
 - Correo que no está dado de alta en `rep.usuario` → `403`.
-- Usuario sin el permiso que exige el endpoint → `403`.
+- Usuario sin el permiso que exige el endpoint, o sin acceso al producto prioritario → `403`.
+
+**Power BI:** *Obtener datos → Texto/CSV* con la URL de export, o conexión directa a Azure SQL sobre la vista `rep.v_datos_rep`. El CSV usa coma como separador y punto decimal; si Power BI está en español, elige *Configuración regional: Inglés* al importar.
 
 ## Desarrollo local
 

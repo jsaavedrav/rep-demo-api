@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthGuard } from './auth/auth.guard.js';
 import { DatabaseModule } from './database/database.module.js';
+import { GestionModule } from './gestion/gestion.module.js';
 import { HealthController } from './health.controller.js';
 import { MovimientosModule } from './movimientos/movimientos.module.js';
 import { ProgramasModule } from './programas/programas.module.js';
@@ -17,6 +18,7 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
     ProgramasModule,
     SkusModule,
     MovimientosModule,
+    GestionModule,
   ],
   controllers: [HealthController],
   // Todos los endpoints exigen sesión y permisos, salvo los marcados con @Publico().
