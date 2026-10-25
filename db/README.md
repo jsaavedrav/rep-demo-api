@@ -72,6 +72,11 @@ sucursal ──< movimiento >─────────────┘         
    - Autenticación: **Microsoft Entra ID - Universal with MFA**, con tu cuenta.
 3. Abre cada archivo en orden y presiona **Execute Query** (`Cmd+Shift+E`).
 
+**Opción C: DBeaver**
+1. Conéctate a `<tu-servidor>.database.windows.net`, base `repdb`, con autenticación de Microsoft Entra (por ejemplo *Azure Active Directory - MFA*).
+2. **`01-ddl.sql`:** ábrelo y usa **Execute SQL Script** (`Alt+X`). DBeaver lo divide en sentencias y respeta los `GO`.
+3. **`02` y `03`:** ábrelos, selecciona todo (`Cmd+A`) y usa **Execute SQL Statement** (`Cmd+Enter`), para que se envíen como **un solo bloque**. No uses *Execute SQL Script* con estos dos: usan variables de tabla y una transacción que deben ir juntas, y al dividirlos fallan con *"Must declare the table variable"*.
+
 **Opción B: terminal con `sqlcmd`**
 
 Instalarlo una vez:
