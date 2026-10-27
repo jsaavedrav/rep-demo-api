@@ -111,6 +111,32 @@ npm test
 
 > Con npm 10 la instalación puede fallar por un bug de npm con las dependencias de Vitest. Usa npm 11: `npx npm@11 install`.
 
+### Desarrollo local contra la base de Azure
+
+Para usar la base real en vez de la de Docker, la API entra con **tu cuenta de Microsoft**, igual que en Azure lo hace con Managed Identity: sin contraseñas.
+
+Requisitos: tu cuenta debe ser *Microsoft Entra admin* del servidor (o un usuario creado con `FROM EXTERNAL PROVIDER`) y tu IP debe estar en el firewall del servidor.
+
+1. Instalar la Azure CLI e iniciar sesión (una vez; la sesión dura semanas):
+   ```bash
+   brew install azure-cli
+   ```
+   ```bash
+   az login
+   ```
+2. En `.env`, deja `SQL_CONNECTION_STRING` vacío y define el servidor y la base, por ejemplo:
+   ```
+   SQL_SERVER=sql-rep-demo.database.windows.net
+   SQL_DATABASE=free-sql-db-rep-demo
+   DEV_USER_EMAIL=<un correo dado de alta en rep.usuario>
+   ```
+   Ojo: con la oferta gratuita, Azure le pone a la base un nombre como `free-sql-db-...`, que no es el que se escribió al crearla. Lo ves en el portal o con `az sql db list -s <servidor> -g <grupo> -o table`. `rep` es el esquema, no la base.
+3. Levanta la API:
+   ```bash
+   npm run start:dev
+   ```
+   La primera consulta puede tardar unos segundos si la base estaba en pausa.
+
 ## Variables de entorno
 
 | Variable | Uso |
