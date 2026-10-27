@@ -76,7 +76,7 @@ Todas las rutas con `:id` de programa exigen además que el usuario tenga **acce
 
 ## Desarrollo local
 
-Requisitos: **Node 22+** y **Docker**.
+Requisitos: **Node 22+** y **Docker**. El repo trae `.nvmrc`: en cada terminal nueva ejecuta `nvm use` dentro de la carpeta (si tu Node por defecto es más antiguo, verás errores como *Unexpected token 'with'*).
 
 ```bash
 cp .env.example .env        # define MSSQL_SA_PASSWORD (y DEV_USER_EMAIL si quieres otro usuario)

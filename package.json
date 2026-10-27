@@ -2,7 +2,7 @@
   "name": "rep-demo-api",
   "version": "0.1.0",
   "private": true,
-  "description": "API de Declaración REP (NestJS + Azure SQL)",
+  "description": "API de Declaraci\u00f3n REP (NestJS + Azure SQL)",
   "scripts": {
     "build": "nest build",
     "start": "node dist/main.js",
@@ -35,5 +35,8 @@
   "type": "module",
   "overrides": {
     "multer": "^2.5.0"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }
