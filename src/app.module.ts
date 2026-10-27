@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthGuard } from './auth/auth.guard.js';
+import { VerificadorToken } from './auth/verificador-token.js';
 import { DatabaseModule } from './database/database.module.js';
 import { GestionModule } from './gestion/gestion.module.js';
 import { HealthController } from './health.controller.js';
@@ -22,6 +23,6 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
   ],
   controllers: [HealthController],
   // Todos los endpoints exigen sesión y permisos, salvo los marcados con @Publico().
-  providers: [{ provide: APP_GUARD, useClass: AuthGuard }],
+  providers: [VerificadorToken, { provide: APP_GUARD, useClass: AuthGuard }],
 })
 export class AppModule {}
