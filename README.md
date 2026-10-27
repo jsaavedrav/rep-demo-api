@@ -5,9 +5,11 @@ API de **Declaración REP**. Backend del frontend [`rep-demo-front`](../rep-demo
 **NestJS 12 · Azure SQL · Azure Container Apps**
 
 ```
-rep-demo-front (Static Web App)  ──/api/*──▶  rep-demo-api (Container App)  ──▶  Azure SQL (serverless)
-          login Microsoft Entra ID          lee el usuario del header,         permisos en rep.perfil_permiso
-                                            valida permisos y datos
+Usuario ──login──▶ Microsoft Entra ID ──JWT──▶ rep-demo-front (Static Web App, Free)
+                                                    │  Authorization: Bearer <JWT>  (CORS)
+                                                    ▼
+                                    rep-demo-api (Container App)  ──Managed Identity──▶  Azure SQL (serverless)
+                                    valida el JWT, permisos y datos                     permisos en rep.perfil_permiso
 ```
 
 ## Estructura
@@ -69,6 +71,7 @@ Todas las rutas con `:id` de programa exigen además que el usuario tenga **acce
 
 **Respuestas de autorización:**
 - Sin sesión → `401`.
+- Token inválido, expirado, de otra aplicación o sin el permiso `access_as_user` → `401`.
 - Correo que no está dado de alta en `rep.usuario` → `403`.
 - Usuario sin el permiso que exige el endpoint, o sin acceso al producto prioritario → `403`.
 
@@ -98,10 +101,10 @@ npm install
 npm run start:dev
 ```
 
-API en `http://localhost:3000/api`. Sin Static Web Apps delante, el usuario se simula con `DEV_USER_EMAIL`, que se ignora cuando `NODE_ENV=production`. Para probar otro usuario, envía el header como lo haría Azure:
+API en `http://localhost:3000/api`. Las peticiones **sin token** usan el usuario de `DEV_USER_EMAIL` (cómodo para probar con curl); se ignora con `NODE_ENV=production`. Las peticiones con `Authorization: Bearer <JWT>` se validan igual que en Azure: así funciona el front local en modo `api`.
 
 ```bash
-curl -H "x-ms-client-principal: $(printf '{"userDetails":"consulta@demo.cl"}' | base64)" http://localhost:3000/api/usuarios/me
+curl http://localhost:3000/api/usuarios/me
 ```
 
 **Pruebas:**
@@ -142,47 +145,54 @@ Requisitos: tu cuenta debe ser *Microsoft Entra admin* del servidor (o un usuari
 | Variable | Uso |
 |---|---|
 | `SQL_CONNECTION_STRING` | Cadena de conexión completa (local, o usuario SQL). Si está definida, tiene prioridad. |
-| `SQL_SERVER`, `SQL_DATABASE` | Conexión con **Managed Identity** (Azure, sin contraseña). |
+| `SQL_SERVER`, `SQL_DATABASE` | Conexión con **Managed Identity** en Azure, o con tu cuenta (`az login`) en local. Sin contraseña. |
 | `AZURE_CLIENT_ID` | Solo si usas una identidad asignada por el usuario. |
-| `DEV_USER_EMAIL` | Usuario simulado en desarrollo. |
+| `AUTH_CLIENT_ID` | Client ID de la app "rep-demo" en Microsoft Entra ID: audiencia que se exige en el JWT. |
+| `CORS_ORIGINS` | Orígenes del front autorizados, separados por coma. |
+| `DEV_USER_EMAIL` | Usuario simulado cuando la petición llega sin token (solo desarrollo; se ignora con `NODE_ENV=production`). |
 | `PORT` | Puerto HTTP (por defecto 3000). |
 
-## Despliegue en Azure
+## Despliegue en Azure (costo cero)
 
-1. **Base de datos:** créala y ejecuta los scripts, siguiendo [db/README.md](db/README.md).
+Recursos actuales, todos en el grupo `rg-rep-demo`:
 
-2. **Container App:** crea el entorno y la app, compilando la imagen desde este repo. Requiere [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli).
-   ```bash
-   az group create -n rg-rep -l <region>
-   ```
-   ```bash
-   az containerapp env create -n cae-rep -g rg-rep -l <region>
-   ```
-   ```bash
-   az containerapp up -n rep-api -g rg-rep --environment cae-rep --source . --ingress external --target-port 3000
-   ```
-   `--source .` crea un Azure Container Registry Basic (~USD 5 al mes). Para evitar ese costo, publica la imagen en GitHub Container Registry desde GitHub Actions.
+| Recurso | Nombre | Notas |
+|---|---|---|
+| App en Microsoft Entra ID | `rep-demo` (client ID `b298bb74-9588-41c9-89fc-7034f0b388c0`) | Emite los JWT. Acepta cualquier cuenta Microsoft; quién entra lo decide `rep.usuario`. Scope `api://<client-id>/access_as_user`. |
+| Imagen | `ghcr.io/jsaavedrav/rep-demo-api` (pública) | La publica el workflow `.github/workflows/imagen.yml` en cada push a `main`, después de correr las pruebas. |
+| Entorno de Container Apps | `cae-rep-demo` (Brazil South) | Sin destino de logs (costo cero). |
+| Container App | `rep-api` | `https://rep-api.lemondesert-1bad17fd.brazilsouth.azurecontainerapps.io`. Escala a cero; identidad asignada por el sistema. |
+| Usuario SQL | `rep-api` | Creado por SID para la identidad de la Container App; solo lectura y escritura sobre el esquema `rep`. |
 
-3. **Identidad y configuración:**
+### Publicar una nueva versión
+1. Push a `main`. El workflow prueba, construye y publica `ghcr.io/jsaavedrav/rep-demo-api:latest` y `:<sha>`.
+2. Cuando termine en verde, actualiza la Container App. Usar el tag con el SHA del commit deja registro exacto de qué versión corre:
    ```bash
-   az containerapp identity assign -n rep-api -g rg-rep --system-assigned
-   ```
-   ```bash
-   az containerapp update -n rep-api -g rg-rep --min-replicas 0 --max-replicas 3 --set-env-vars NODE_ENV=production SQL_SERVER=<servidor>.database.windows.net SQL_DATABASE=repdb
+   az containerapp update -n rep-api -g rg-rep-demo --image ghcr.io/jsaavedrav/rep-demo-api:<sha-del-commit>
    ```
 
-4. **Acceso a SQL:** da acceso a la identidad de la app ejecutando el `CREATE USER ... FROM EXTERNAL PROVIDER` de [db/README.md](db/README.md).
+### Cómo se creó (para recrearlo en otro ambiente)
+1. **Base de datos:** ver [db/README.md](db/README.md).
+2. **App en Entra ID:**
+   - Registro con `signInAudience = AzureADandPersonalMicrosoftAccount` y `requestedAccessTokenVersion = 2`.
+   - Scope `access_as_user` y URI `api://<client-id>`, pre-autorizada para sí misma (evita la pantalla de consentimiento).
+   - Redirect URIs de tipo **SPA**: la URL de la Static Web App y `http://localhost:4200`.
+3. **Container App:**
+   ```bash
+   az containerapp env create -n cae-rep-demo -g rg-rep-demo -l brazilsouth --logs-destination none
+   ```
+   ```bash
+   az containerapp create -n rep-api -g rg-rep-demo --environment cae-rep-demo --image ghcr.io/jsaavedrav/rep-demo-api:latest --target-port 3000 --ingress external --min-replicas 0 --max-replicas 2 --cpu 0.25 --memory 0.5Gi --system-assigned --env-vars NODE_ENV=production SQL_SERVER=<servidor>.database.windows.net SQL_DATABASE=<base> AUTH_CLIENT_ID=<client-id> CORS_ORIGINS=<url-del-front>
+   ```
+4. **Acceso a SQL de la identidad:** obtén su client ID con `az ad sp show --id <principalId> --query appId -o tsv`. Luego, conectado a la base como admin de Entra:
+   ```sql
+   -- SID = client ID de la identidad en formato binario (uuid.bytes_le). Ver db/README.md.
+   CREATE USER [rep-api] WITH SID = 0x..., TYPE = E;
+   GRANT SELECT, INSERT, UPDATE, DELETE ON SCHEMA::rep TO [rep-api];
+   ```
 
-5. **Enlazar con el frontend:** la Static Web App debe estar en el plan **Standard**. Ve a **Static Web App → APIs → Link → Container App → `rep-api`**.
-   - Desde ese momento `/api/*` del sitio llega a esta API.
-   - La Container App solo acepta tráfico que pasa por la Static Web App.
-
-## Pendiente en el frontend para el switch
-
-1. **Login con Microsoft:** reemplazar el formulario de usuario y contraseña por un botón que lleve a `/.auth/login/aad`. `ApiAuthRepository.login` pasa a llamar `GET /api/usuarios/me`.
-2. **Proteger la API:** en `public/staticwebapp.config.json`, exigir el rol `authenticated` en `/api/*`.
-3. **Activar la API:** `dataSource: 'api'` en `src/app/app.settings.ts`.
+**Costos:** la Container App queda dentro del cupo gratuito mensual de Container Apps, la imagen en GHCR es gratis, el entorno no envía logs y la base usa la oferta gratuita. Conviene una alerta de presupuesto en *Cost Management → Budgets*.
 
 ## Próximos pasos sugeridos
 - **Integración SAP:** un *Container Apps Job* programado con la misma imagen, que llame a `SkusService` / `MovimientosService` (mismas validaciones que el Excel).
-- **Pipeline CI/CD:** compilar, probar y desplegar en cada push a `main`.
+- **Despliegue automático:** que el workflow también actualice la Container App (requiere configurar credenciales federadas de Azure en GitHub).
