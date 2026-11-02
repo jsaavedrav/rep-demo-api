@@ -32,7 +32,10 @@ export class AuthGuard implements CanActivate {
     const email = await this.emailDe(req);
 
     const usuario = await this.usuarios.buscarActivoPorEmail(email);
-    if (!usuario) throw new ForbiddenException('El usuario no tiene acceso a la aplicación');
+    if (!usuario) {
+      this.logger.warn(`Acceso denegado: ${email} no está activo en rep.usuario`);
+      throw new ForbiddenException('El usuario no tiene acceso a la aplicación');
+    }
     req.usuario = usuario;
 
     const requeridos = this.reflector.getAllAndOverride<Permiso[] | undefined>(PERMISOS, destino) ?? [];
