@@ -6,6 +6,7 @@
 | `02-dml-datos-maestros.sql` | **Obligatorio.** Perfiles, permisos, los 6 productos prioritarios, atributos, metas del DS 8, parámetros, usuarios y su acceso. |
 | `03-dml-datos-ejemplo.sql` | **Opcional**, solo para pruebas o demo. Envases de ejemplo y los 100 registros de neumáticos de la especificación. |
 | `04-consultas-indicadores.sql` | Línea base, metas, kilos meta con desgaste, % de cumplimiento y costo de gestión, según las fórmulas de la especificación. Solo lectura. |
+| `05-migracion-baterias.sql` | Solo para bases creadas antes de noviembre 2026: renombra el producto 3 a "Pilas, artículos eléctricos y electrónicos" y cambia "Pilas" (`pil`) por "Baterías" (`bat`). |
 
 Los scripts son **idempotentes** (se pueden correr más de una vez) y están probados en SQL Server 2022. En local los ejecuta `docker compose` automáticamente (ver el README principal).
 

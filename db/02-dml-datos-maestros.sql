@@ -51,12 +51,12 @@ WHEN NOT MATCHED BY SOURCE THEN DELETE;
 /* Los 6 productos prioritarios de la Ley REP. "configurado" = ya tiene atributos y puede usarse. */
 MERGE rep.programa AS t
 USING (VALUES
-  ('env', N'Envases y embalajes',                1, 1, 'clase',     'material'),
-  ('neu', N'Neumáticos',                         2, 1, 'categoria', 'subcategoria'),
-  ('aee', N'Aparatos eléctricos y electrónicos', 3, 0, NULL,        NULL),
-  ('ayl', N'Aceites y lubricantes',              4, 0, NULL,        NULL),
-  ('pil', N'Pilas',                              5, 0, NULL,        NULL),
-  ('tex', N'Textiles',                           6, 0, NULL,        NULL)
+  ('env', N'Envases y embalajes',                        1, 1, 'clase',     'material'),
+  ('neu', N'Neumáticos',                                 2, 1, 'categoria', 'subcategoria'),
+  ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 0, NULL,        NULL),
+  ('ayl', N'Aceites y lubricantes',                      4, 0, NULL,        NULL),
+  ('bat', N'Baterías',                                   5, 0, NULL,        NULL),
+  ('tex', N'Textiles',                                   6, 0, NULL,        NULL)
 ) AS s (id, nombre, orden, configurado, agrupador, desglose) ON t.id = s.id
 WHEN MATCHED THEN UPDATE SET nombre = s.nombre, orden = s.orden, configurado = s.configurado, agrupador = s.agrupador, desglose = s.desglose
 WHEN NOT MATCHED THEN INSERT (id, nombre, orden, configurado, agrupador, desglose)
@@ -125,7 +125,7 @@ INSERT INTO rep.usuario_programa (usuario_id, programa_id)
 SELECT u.id, a.programa_id
 FROM (VALUES
   (N'admin@demo.cl', 'env'), (N'admin@demo.cl', 'neu'), (N'admin@demo.cl', 'aee'),
-  (N'admin@demo.cl', 'ayl'), (N'admin@demo.cl', 'pil'), (N'admin@demo.cl', 'tex'),
+  (N'admin@demo.cl', 'ayl'), (N'admin@demo.cl', 'bat'), (N'admin@demo.cl', 'tex'),
   (N'operador@demo.cl', 'env'), (N'operador@demo.cl', 'neu'),
   (N'consulta@demo.cl', 'neu')
 ) AS a (email, programa_id)
