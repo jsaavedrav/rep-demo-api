@@ -1,14 +1,16 @@
-import { IsInt, IsNumber, IsObject, IsOptional, IsPositive, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsNumber, IsObject, IsOptional, IsPositive, IsString, Length, Matches, MaxLength } from 'class-validator';
+import type { TipoMovimiento } from '../dominio/models.js';
 
 /**
- * Una fila de la planilla de ventas / aduana (importación unificada): crea o actualiza el SKU
- * y registra las unidades introducidas al mercado.
+ * Una fila de la planilla de importaciones (DIN) o de ventas (facturas): crea o actualiza el SKU
+ * y registra las unidades.
  */
 export class FilaVentaDto {
   @IsString() @Length(1, 20) programaId: string;
+  @IsIn(['importacion', 'venta']) tipo: TipoMovimiento;
   /** ID_Registro de la planilla o línea de SAP. Si viene, re-importar actualiza en vez de duplicar. */
   @IsOptional() @IsString() @Length(1, 50) idOrigen?: string | null;
-  /** DIN. */
+  /** DIN o factura. */
   @IsString() @Length(1, 50) documento: string;
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'fecha debe tener formato AAAA-MM-DD' }) fecha: string;
   @IsOptional() @IsString() @Length(1, 30) sucursal?: string | null;

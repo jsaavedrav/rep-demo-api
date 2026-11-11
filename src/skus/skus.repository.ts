@@ -26,12 +26,12 @@ export class SkusRepository {
         .input('json', sql.NVarChar(sql.MAX), JSON.stringify(items))
         .input('usuario_id', sql.Int, Number(usuarioId))
         .query(`
-          DECLARE @cat TABLE (programa_id varchar(20), sku nvarchar(50), nombre nvarchar(150), atributos nvarchar(max), peso_kg decimal(14,6));
+          DECLARE @cat TABLE (programa_id varchar(20), sku nvarchar(50), nombre nvarchar(150), atributos nvarchar(max), peso_kg decimal(16,7));
           INSERT INTO @cat
           SELECT programaId, sku, nombre, atributos, pesoKg
           FROM OPENJSON(@json) WITH (
             programaId varchar(20), sku nvarchar(50), nombre nvarchar(150),
-            atributos nvarchar(max) '$.atributos' AS JSON, pesoKg decimal(14,6)
+            atributos nvarchar(max) '$.atributos' AS JSON, pesoKg decimal(16,7)
           );
 
           INSERT INTO rep.sku (programa_id, sku)

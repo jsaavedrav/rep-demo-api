@@ -14,7 +14,7 @@ export class MovimientosRepository {
     const r = await (await this.db.request())
       .input('programa_id', sql.VarChar(20), programaId)
       .query(`
-        SELECT m.id, m.programa_id AS programaId, m.id_origen AS idOrigen, m.documento,
+        SELECT m.id, m.programa_id AS programaId, m.tipo, m.id_origen AS idOrigen, m.documento,
                CONVERT(char(10), m.fecha, 23) AS fecha, m.sucursal_codigo AS sucursal, m.proveedor, m.sku, m.unidades,
                (SELECT mc.componente_id AS c, mc.peso_kg AS p FROM rep.movimiento_componente mc
                 WHERE mc.movimiento_id = m.id FOR JSON PATH, INCLUDE_NULL_VALUES) AS pesos
@@ -60,8 +60,8 @@ export class MovimientosRepository {
   }
 
   /**
-   * Importación unificada en una transacción: crea/actualiza SKUs, sucursales y movimientos,
-   * y congela el peso de cada registro (el de la planilla, o el vigente del SKU, o pendiente).
+   * Importación de una planilla (DIN o ventas) en una transacción: crea/actualiza SKUs, sucursales y
+   * movimientos, y congela el peso de cada registro (el de la planilla, o el vigente del SKU, o pendiente).
    */
   importarVentas(
     programaId: string, filas: FilaVentaDto[], skus: PlanSku[], usuarioId: string,
@@ -73,20 +73,21 @@ export class MovimientosRepository {
         .input('filas', sql.NVarChar(sql.MAX), JSON.stringify(filas.map((f, i) => ({ ...f, fila: i + 1 }))))
         .input('skus', sql.NVarChar(sql.MAX), JSON.stringify(skus.map((s) => ({ ...s, atributos: JSON.stringify(s.atributos) }))))
         .query(`
-          DECLARE @f TABLE (fila int, id_origen nvarchar(50), documento nvarchar(50), fecha date, sucursal nvarchar(30),
-                            proveedor nvarchar(150), sku nvarchar(50), unidades int, peso_kg decimal(14,6));
+          DECLARE @f TABLE (fila int, tipo varchar(20), id_origen nvarchar(50), documento nvarchar(50), fecha date,
+                            sucursal nvarchar(30), proveedor nvarchar(150), sku nvarchar(50), unidades int, peso_kg decimal(16,7));
           INSERT INTO @f
-          SELECT fila, idOrigen, documento, fecha, sucursal, proveedor, sku, unidades, pesoKg
+          SELECT fila, tipo, idOrigen, documento, fecha, sucursal, proveedor, sku, unidades, pesoKg
           FROM OPENJSON(@filas) WITH (
-            fila int, idOrigen nvarchar(50), documento nvarchar(50), fecha date, sucursal nvarchar(30),
-            proveedor nvarchar(150), sku nvarchar(50), unidades int, pesoKg decimal(14,6));
+            fila int, tipo varchar(20), idOrigen nvarchar(50), documento nvarchar(50), fecha date, sucursal nvarchar(30),
+            proveedor nvarchar(150), sku nvarchar(50), unidades int, pesoKg decimal(16,7));
 
-          DECLARE @s TABLE (sku nvarchar(50), nuevo bit, un_componente bit, nombre nvarchar(150), atributos nvarchar(max), peso_kg decimal(14,6));
+          DECLARE @s TABLE (sku nvarchar(50), nuevo bit, un_componente bit, nombre nvarchar(150), atributos nvarchar(max), peso_kg decimal(16,7));
           INSERT INTO @s
           SELECT sku, nuevo, unComponente, nombre, atributos, pesoKg
-          FROM OPENJSON(@skus) WITH (sku nvarchar(50), nuevo bit, unComponente bit, nombre nvarchar(150), atributos nvarchar(max), pesoKg decimal(14,6));
+          FROM OPENJSON(@skus) WITH (sku nvarchar(50), nuevo bit, unComponente bit, nombre nvarchar(150), atributos nvarchar(max), pesoKg decimal(16,7));
 
-          INSERT INTO rep.importacion (programa_id, tipo, origen, usuario_id) VALUES (@p, 'ventas', 'excel', @usuario_id);
+          INSERT INTO rep.importacion (programa_id, tipo, origen, usuario_id)
+          SELECT TOP 1 @p, IIF(tipo = 'venta', 'ventas', 'importaciones'), 'excel', @usuario_id FROM @f;
           DECLARE @imp bigint = SCOPE_IDENTITY();
 
           -- 1. Sucursales nuevas (el nombre se puede completar después).
@@ -106,11 +107,11 @@ export class MovimientosRepository {
           FROM rep.sku_componente c JOIN @s s ON s.sku = c.sku
           WHERE c.programa_id = @p AND s.nuevo = 0 AND s.un_componente = 1;
 
-          -- 4. Movimientos: crea o actualiza (por id de origen, o por DIN + SKU + fecha + sucursal).
+          -- 4. Movimientos: crea o actualiza (por tipo + id de origen, o por tipo + documento + SKU + fecha + sucursal).
           DECLARE @mov TABLE (fila int, movimiento_id bigint, accion nvarchar(10));
           MERGE rep.movimiento AS t
           USING @f AS s
-          ON t.programa_id = @p AND (
+          ON t.programa_id = @p AND t.tipo = s.tipo AND (
                (s.id_origen IS NOT NULL AND t.id_origen = s.id_origen)
             OR (s.id_origen IS NULL AND t.id_origen IS NULL AND t.documento = s.documento AND t.sku = s.sku
                 AND t.fecha = s.fecha AND EXISTS (SELECT t.sucursal_codigo INTERSECT SELECT s.sucursal)))
@@ -118,8 +119,8 @@ export class MovimientosRepository {
             UPDATE SET documento = s.documento, fecha = s.fecha, sucursal_codigo = s.sucursal, proveedor = s.proveedor,
                        sku = s.sku, unidades = s.unidades, importacion_id = @imp
           WHEN NOT MATCHED THEN
-            INSERT (programa_id, id_origen, documento, fecha, sucursal_codigo, proveedor, sku, unidades, importacion_id)
-            VALUES (@p, s.id_origen, s.documento, s.fecha, s.sucursal, s.proveedor, s.sku, s.unidades, @imp)
+            INSERT (programa_id, tipo, id_origen, documento, fecha, sucursal_codigo, proveedor, sku, unidades, importacion_id)
+            VALUES (@p, s.tipo, s.id_origen, s.documento, s.fecha, s.sucursal, s.proveedor, s.sku, s.unidades, @imp)
           OUTPUT s.fila, inserted.id, $action INTO @mov;
 
           -- Si un registro re-importado cambió de SKU, se quitan los componentes del SKU anterior.

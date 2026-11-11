@@ -2,10 +2,10 @@ import { advertenciasPrograma, validarAtributos } from '../dominio/atributos.js'
 import { DefinicionPrograma } from '../programas/programas.repository.js';
 import { FilaExport, generarCsv } from './exportacion.js';
 import { FilaVentaDto } from './ventas.dto.js';
-import { ComponenteExistente, validarVentas } from './ventas.validacion.js';
+import { ComponenteExistente, claveRegistro, validarVentas } from './ventas.validacion.js';
 
 const neu: DefinicionPrograma = {
-  id: 'neu', nombre: 'Neumáticos', orden: 2, configurado: true, agrupador: 'categoria', desglose: 'subcategoria',
+  id: 'neu', nombre: 'Neumáticos', orden: 2, configurado: true, agrupador: 'categoria', desglose: 'subcategoria', baseCalculo: 'importacion',
   atributos: { marca: 'Marca', tipo: 'Tipo', categoria: 'Categoría', aro: 'Aro' },
   definicionAtributos: [
     { clave: 'marca', etiqueta: 'Marca', tipo: 'texto', obligatorio: true, valores: null },
@@ -15,8 +15,18 @@ const neu: DefinicionPrograma = {
   ],
 };
 
+const env: DefinicionPrograma = {
+  id: 'env', nombre: 'Envases y embalajes', orden: 1, configurado: true, agrupador: 'clase', desglose: 'material', baseCalculo: 'venta',
+  atributos: { tipo: 'Tipo de envase', clase: 'Clasificación', material: 'Subcategoría' },
+  definicionAtributos: [
+    { clave: 'tipo', etiqueta: 'Tipo de envase', tipo: 'texto', obligatorio: true, valores: ['Primario', 'Secundario', 'Terciario'] },
+    { clave: 'clase', etiqueta: 'Clasificación', tipo: 'texto', obligatorio: true, valores: ['Domiciliario', 'No domiciliario'] },
+    { clave: 'material', etiqueta: 'Subcategoría', tipo: 'texto', obligatorio: true, valores: ['Metal', 'Papel y cartón', 'Plástico', 'Vidrio', 'Madera'] },
+  ],
+};
+
 const fila = (extra: Partial<FilaVentaDto> = {}): FilaVentaDto => ({
-  programaId: 'neu', documento: 'DIN-1', fecha: '2025-03-10', sku: 'NEU-1', unidades: 10,
+  programaId: 'neu', tipo: 'importacion', documento: 'DIN-1', fecha: '2025-03-10', sku: 'NEU-1', unidades: 10,
   atributos: { marca: 'Michelin', tipo: 'Radial', categoria: 'Categoría A', aro: 16 },
   ...extra,
 });
@@ -35,6 +45,12 @@ describe('validarAtributos', () => {
     expect(r.errores).toHaveLength(3);
   });
 
+  it('acepta valores con otras mayúsculas o tildes y guarda el valor definido', () => {
+    const r = validarAtributos(env.definicionAtributos, { clase: 'No Domiciliario', material: 'PAPEL Y CARTON' }, false);
+    expect(r.errores).toEqual([]);
+    expect(r.valores).toEqual({ clase: 'No domiciliario', material: 'Papel y cartón' });
+  });
+
   it('exige los obligatorios solo para SKUs nuevos', () => {
     expect(validarAtributos(neu.definicionAtributos, { marca: 'X' }, true).errores).toHaveLength(3);
     expect(validarAtributos(neu.definicionAtributos, { marca: 'X' }, false).errores).toHaveLength(0);
@@ -47,6 +63,15 @@ describe('advertenciasPrograma (DS 8/2019)', () => {
     expect(advertenciasPrograma('neu', { aro: 57, categoria: 'Categoría B' })).toHaveLength(0);
     expect(advertenciasPrograma('neu', { aro: 16, categoria: 'Categoría A' })).toHaveLength(0);
     expect(advertenciasPrograma('env', { aro: 49, categoria: 'Categoría B' })).toHaveLength(0);
+  });
+});
+
+describe('advertenciasPrograma (envases)', () => {
+  it('avisa si la subcategoría no corresponde a la clasificación', () => {
+    expect(advertenciasPrograma('env', { clase: 'No domiciliario', material: 'Vidrio' })).toHaveLength(1);
+    expect(advertenciasPrograma('env', { clase: 'Domiciliario', material: 'Madera' })).toHaveLength(1);
+    expect(advertenciasPrograma('env', { clase: 'No domiciliario', material: 'Madera' })).toHaveLength(0);
+    expect(advertenciasPrograma('env', { clase: 'Domiciliario', material: 'Vidrio' })).toHaveLength(0);
   });
 });
 
@@ -72,6 +97,19 @@ describe('validarVentas', () => {
       .toContain('repetido');
     expect(validarVentas(neu, [fila(), fila()], sinExistentes).errores).toHaveLength(1);
     expect(validarVentas(neu, [fila({ sucursal: 'S1' }), fila({ sucursal: 'S2' })], sinExistentes).errores).toEqual([]);
+  });
+
+  it('el mismo id de origen puede repetirse entre importaciones y ventas, pero no mezclarse en una planilla', () => {
+    const venta = (extra: Partial<FilaVentaDto> = {}) => fila({ programaId: 'env', tipo: 'venta', atributos: null, ...extra });
+    expect(claveRegistro(venta({ idOrigen: '1' }))).not.toBe(claveRegistro(fila({ programaId: 'env', idOrigen: '1' })));
+    const r = validarVentas(env, [venta({ idOrigen: '1' }), fila({ programaId: 'env', idOrigen: '2', atributos: null })], new Map([
+      ['NEU-1', [{ id: '1', nombre: 'Lata', atributos: {}, pesoKg: 0.015 }]],
+    ]));
+    expect(r.errores.map((e) => e.mensaje)).toEqual(['Todas las filas deben ser del mismo tipo (importaciones o ventas)']);
+  });
+
+  it('rechaza ventas en productos que calculan la línea base con DIN', () => {
+    expect(validarVentas(neu, [fila({ tipo: 'venta' })], sinExistentes).errores[0].mensaje).toContain('planilla DIN');
   });
 
   it('rechaza fechas que no existen', () => {

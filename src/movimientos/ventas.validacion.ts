@@ -36,7 +36,7 @@ const fechaValida = (f: string) => {
 
 /** Mismo criterio que los índices únicos de rep.movimiento. */
 export const claveRegistro = (f: FilaVentaDto) =>
-  f.idOrigen ? `origen:${f.idOrigen}` : `natural:${f.documento}|${f.sku}|${f.fecha}|${f.sucursal ?? ''}`;
+  f.idOrigen ? `${f.tipo}:origen:${f.idOrigen}` : `${f.tipo}:natural:${f.documento}|${f.sku}|${f.fecha}|${f.sucursal ?? ''}`;
 
 export function validarVentas(
   programa: DefinicionPrograma,
@@ -54,6 +54,10 @@ export function validarVentas(
     const aviso = (mensaje: string) => advertencias.push({ fila, mensaje });
 
     if (f.programaId !== programa.id) return error('Todas las filas deben ser del mismo producto prioritario');
+    if (f.tipo !== filas[0].tipo) return error('Todas las filas deben ser del mismo tipo (importaciones o ventas)');
+    if (f.tipo === 'venta' && programa.baseCalculo === 'importacion') {
+      return error(`${programa.nombre} calcula su línea base con la planilla DIN: no usa planilla de ventas`);
+    }
     if (!fechaValida(f.fecha)) error(`Fecha inválida: "${f.fecha}"`);
 
     const clave = claveRegistro(f);

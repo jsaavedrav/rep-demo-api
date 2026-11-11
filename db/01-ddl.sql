@@ -54,7 +54,10 @@ CREATE TABLE rep.programa (
   orden       tinyint       NOT NULL,
   configurado bit           NOT NULL CONSTRAINT df_programa_configurado DEFAULT (0), -- 0 = aún no disponible en la app
   agrupador   varchar(30)   NULL, -- clave de atributo para totales y metas (ej: categoria)
-  desglose    varchar(30)   NULL  -- clave de atributo para filas del resumen (ej: subcategoria)
+  desglose    varchar(30)   NULL, -- clave de atributo para filas del resumen (ej: subcategoria)
+  -- Movimientos que forman la línea base: 'importacion' (DIN, neumáticos) o 'venta' (facturas, envases).
+  base_calculo varchar(20)  NOT NULL CONSTRAINT df_programa_base_calculo DEFAULT ('importacion')
+    CONSTRAINT ck_programa_base_calculo CHECK (base_calculo IN ('importacion', 'venta'))
 );
 
 /* Atributos de clasificación de cada programa y sus reglas de validación. */
@@ -109,7 +112,7 @@ CREATE TABLE rep.sku_componente (
   sku             nvarchar(50)   NOT NULL,
   nombre          nvarchar(150)  NOT NULL,
   atributos       nvarchar(max)  NOT NULL CONSTRAINT df_sku_componente_atributos DEFAULT (N'{}'),
-  peso_kg         decimal(14,6)  NULL,  -- NULL = peso pendiente de ingresar
+  peso_kg         decimal(16,7)  NULL,  -- NULL = peso pendiente de ingresar
   actualizado_en  datetime2(0)   NOT NULL CONSTRAINT df_sku_componente_act DEFAULT (SYSUTCDATETIME()),
   actualizado_por int            NULL CONSTRAINT fk_sku_componente_usuario REFERENCES rep.usuario (id),
   CONSTRAINT fk_sku_componente_sku FOREIGN KEY (programa_id, sku) REFERENCES rep.sku (programa_id, sku),
@@ -124,7 +127,7 @@ IF OBJECT_ID('rep.importacion') IS NULL
 CREATE TABLE rep.importacion (
   id            bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_importacion PRIMARY KEY,
   programa_id   varchar(20)   NOT NULL CONSTRAINT fk_importacion_programa REFERENCES rep.programa (id),
-  tipo          varchar(20)   NOT NULL CONSTRAINT ck_importacion_tipo CHECK (tipo IN ('catalogo', 'movimientos', 'ventas')),
+  tipo          varchar(20)   NOT NULL CONSTRAINT ck_importacion_tipo CHECK (tipo IN ('catalogo', 'movimientos', 'ventas', 'importaciones')),
   origen        varchar(20)   NOT NULL CONSTRAINT ck_importacion_origen CHECK (origen IN ('excel', 'sap', 'manual')),
   archivo       nvarchar(260) NULL,
   usuario_id    int           NULL CONSTRAINT fk_importacion_usuario REFERENCES rep.usuario (id),
@@ -139,6 +142,10 @@ IF OBJECT_ID('rep.movimiento') IS NULL
 CREATE TABLE rep.movimiento (
   id              bigint IDENTITY(1,1) NOT NULL CONSTRAINT pk_movimiento PRIMARY KEY,
   programa_id     varchar(20)   NOT NULL,
+  -- 'importacion' (DIN) o 'venta' (factura). La línea base usa el tipo de rep.programa.base_calculo;
+  -- el otro sirve para el control de stock (importado - vendido por SKU).
+  tipo            varchar(20)   NOT NULL CONSTRAINT df_movimiento_tipo DEFAULT ('importacion')
+    CONSTRAINT ck_movimiento_tipo CHECK (tipo IN ('importacion', 'venta')),
   id_origen       nvarchar(50)  NULL,      -- ID_Registro de la planilla o línea de SAP: evita duplicar al re-importar
   documento       nvarchar(50)  NOT NULL,  -- DIN
   fecha           date          NOT NULL,  -- fecha de introducción al mercado
@@ -158,16 +165,16 @@ IF OBJECT_ID('rep.movimiento_componente') IS NULL
 CREATE TABLE rep.movimiento_componente (
   movimiento_id  bigint        NOT NULL CONSTRAINT fk_mov_comp_movimiento REFERENCES rep.movimiento (id) ON DELETE CASCADE,
   componente_id  int           NOT NULL CONSTRAINT fk_mov_comp_componente REFERENCES rep.sku_componente (id),
-  peso_kg        decimal(14,6) NULL CONSTRAINT ck_mov_comp_peso CHECK (peso_kg IS NULL OR peso_kg > 0),
+  peso_kg        decimal(16,7) NULL CONSTRAINT ck_mov_comp_peso CHECK (peso_kg IS NULL OR peso_kg > 0),
   CONSTRAINT pk_movimiento_componente PRIMARY KEY (movimiento_id, componente_id)
 );
 GO
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_movimiento_origen')
-  CREATE UNIQUE INDEX ux_movimiento_origen ON rep.movimiento (programa_id, id_origen) WHERE id_origen IS NOT NULL;
-/* Sin id de origen, la misma línea se reconoce por DIN + SKU + fecha + sucursal. */
+  CREATE UNIQUE INDEX ux_movimiento_origen ON rep.movimiento (programa_id, tipo, id_origen) WHERE id_origen IS NOT NULL;
+/* Sin id de origen, la misma línea se reconoce por tipo + documento + SKU + fecha + sucursal. */
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_movimiento_natural')
-  CREATE UNIQUE INDEX ux_movimiento_natural ON rep.movimiento (programa_id, documento, sku, fecha, sucursal_codigo) WHERE id_origen IS NULL;
+  CREATE UNIQUE INDEX ux_movimiento_natural ON rep.movimiento (programa_id, tipo, documento, sku, fecha, sucursal_codigo) WHERE id_origen IS NULL;
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ix_movimiento_programa_fecha')
   CREATE INDEX ix_movimiento_programa_fecha ON rep.movimiento (programa_id, fecha) INCLUDE (sku, unidades, documento, sucursal_codigo);
 GO
@@ -234,11 +241,13 @@ GO
 /* ---------- Vistas ----------------------------------------------------------- */
 
 /* Base de los informes: una fila por movimiento y componente, con la masa calculada
-   desde el peso congelado. Peso NULL => kilos NULL (pendiente, no suma). */
+   desde el peso congelado. Peso NULL => kilos NULL (pendiente, no suma). Solo incluye los movimientos
+   que forman la línea base de cada producto (rep.programa.base_calculo). */
 CREATE OR ALTER VIEW rep.v_informe_kilos AS
 SELECT
   m.programa_id,
   m.id                 AS movimiento_id,
+  m.tipo,
   m.id_origen,
   m.documento,
   m.fecha,
@@ -255,6 +264,7 @@ SELECT
   CAST(m.unidades * mc.peso_kg AS decimal(18,3))          AS kilos,
   CAST(m.unidades * mc.peso_kg / 1000 AS decimal(18,6))   AS toneladas
 FROM rep.movimiento m
+JOIN rep.programa p ON p.id = m.programa_id AND p.base_calculo = m.tipo
 JOIN rep.movimiento_componente mc ON mc.movimiento_id = m.id
 JOIN rep.sku_componente c ON c.id = mc.componente_id
 LEFT JOIN rep.sucursal s ON s.codigo = m.sucursal_codigo;

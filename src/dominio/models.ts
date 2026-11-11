@@ -29,6 +29,9 @@ export interface AtributoDef {
 }
 
 /** Producto prioritario REP (Envases y embalajes, Neumáticos, ...). */
+/** 'importacion' = DIN (aduana); 'venta' = factura o boleta. */
+export type TipoMovimiento = 'importacion' | 'venta';
+
 export interface Programa {
   id: string;
   nombre: string;
@@ -42,6 +45,8 @@ export interface Programa {
   definicionAtributos: AtributoDef[];
   agrupador: string;
   desglose: string;
+  /** Movimientos que forman la línea base; los del otro tipo sirven para el control de stock. */
+  baseCalculo: TipoMovimiento;
 }
 
 export type ValorAtributo = string | number;
@@ -59,8 +64,9 @@ export interface SkuComponente {
 export interface Movimiento {
   id: string;
   programaId: string;
+  tipo: TipoMovimiento;
   idOrigen: string | null;
-  documento: string; // DIN
+  documento: string; // DIN o factura
   fecha: string; // YYYY-MM-DD
   sucursal: string | null;
   proveedor: string | null;

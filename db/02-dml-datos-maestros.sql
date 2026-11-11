@@ -48,27 +48,28 @@ USING (VALUES
 WHEN NOT MATCHED BY TARGET THEN INSERT (perfil_codigo, permiso_codigo) VALUES (s.perfil_codigo, s.permiso_codigo)
 WHEN NOT MATCHED BY SOURCE THEN DELETE;
 
-/* Los 6 productos prioritarios de la Ley REP. "configurado" = ya tiene atributos y puede usarse. */
+/* Los 6 productos prioritarios de la Ley REP. "configurado" = ya tiene atributos y puede usarse.
+   base_calculo = movimientos que forman la línea base: DIN en neumáticos, ventas en envases. */
 MERGE rep.programa AS t
 USING (VALUES
-  ('env', N'Envases y embalajes',                        1, 1, 'clase',     'material'),
-  ('neu', N'Neumáticos',                                 2, 1, 'categoria', 'subcategoria'),
-  ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 0, NULL,        NULL),
-  ('ayl', N'Aceites y lubricantes',                      4, 0, NULL,        NULL),
-  ('bat', N'Baterías',                                   5, 0, NULL,        NULL),
-  ('tex', N'Textiles',                                   6, 0, NULL,        NULL)
-) AS s (id, nombre, orden, configurado, agrupador, desglose) ON t.id = s.id
-WHEN MATCHED THEN UPDATE SET nombre = s.nombre, orden = s.orden, configurado = s.configurado, agrupador = s.agrupador, desglose = s.desglose
-WHEN NOT MATCHED THEN INSERT (id, nombre, orden, configurado, agrupador, desglose)
-  VALUES (s.id, s.nombre, s.orden, s.configurado, s.agrupador, s.desglose);
+  ('env', N'Envases y embalajes',                        1, 1, 'clase',     'material',     'venta'),
+  ('neu', N'Neumáticos',                                 2, 1, 'categoria', 'subcategoria', 'importacion'),
+  ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 0, NULL,        NULL,           'importacion'),
+  ('ayl', N'Aceites y lubricantes',                      4, 0, NULL,        NULL,           'importacion'),
+  ('bat', N'Baterías',                                   5, 0, NULL,        NULL,           'importacion'),
+  ('tex', N'Textiles',                                   6, 0, NULL,        NULL,           'importacion')
+) AS s (id, nombre, orden, configurado, agrupador, desglose, base_calculo) ON t.id = s.id
+WHEN MATCHED THEN UPDATE SET nombre = s.nombre, orden = s.orden, configurado = s.configurado, agrupador = s.agrupador,
+  desglose = s.desglose, base_calculo = s.base_calculo
+WHEN NOT MATCHED THEN INSERT (id, nombre, orden, configurado, agrupador, desglose, base_calculo)
+  VALUES (s.id, s.nombre, s.orden, s.configurado, s.agrupador, s.desglose, s.base_calculo);
 
 /* La etiqueta es también el nombre de la columna en la planilla de importación y en el export. */
 MERGE rep.programa_atributo AS t
 USING (VALUES
-  ('env', 'material',     N'Material',     1, 'texto',  1, NULL),
-  ('env', 'sub',          N'Subcategoría', 2, 'texto',  0, NULL),
-  ('env', 'clase',        N'Clase',        3, 'texto',  1, N'["Domiciliario","No domiciliario"]'),
-  ('env', 'peligro',      N'Peligrosidad', 4, 'texto',  0, N'["Peligroso","No peligroso"]'),
+  ('env', 'tipo',         N'Tipo de envase', 1, 'texto', 1, N'["Primario","Secundario","Terciario"]'),
+  ('env', 'clase',        N'Clasificación',  2, 'texto', 1, N'["Domiciliario","No domiciliario"]'),
+  ('env', 'material',     N'Subcategoría',   3, 'texto', 1, N'["Cartón para líquidos","Metal","Papel y cartón","Plástico","Vidrio","Madera"]'),
   ('neu', 'marca',        N'Marca',        1, 'texto',  1, NULL),
   ('neu', 'tipo',         N'Tipo',         2, 'texto',  1, N'["Radial","Diagonal","Macizo"]'),
   ('neu', 'categoria',    N'Categoría',    3, 'texto',  1, N'["Categoría A","Categoría B"]'),

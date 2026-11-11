@@ -3,6 +3,9 @@ import { AtributoDef, ValorAtributo } from './models.js';
 // Validación de atributos de clasificación según la definición de cada programa
 // (rep.programa_atributo). Lógica pura, sin base de datos: se prueba en atributos.spec.ts.
 
+/** Para comparar valores sin distinguir mayúsculas ni tildes ("No Domiciliario" = "No domiciliario"). */
+const comparable = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
 export interface ResultadoAtributos {
   /** Atributos con los tipos corregidos (ej: "22,5" -> 22.5). Solo incluye los informados. */
   valores: Record<string, ValorAtributo>;
@@ -37,8 +40,11 @@ export function validarAtributos(
     } else {
       const texto = String(bruto).trim();
       if (texto.length > 100) errores.push(`${def.etiqueta} supera 100 caracteres`);
-      else if (def.valores && !def.valores.includes(texto)) {
-        errores.push(`${def.etiqueta} "${texto}" no es válido (valores: ${def.valores.join(', ')})`);
+      else if (def.valores) {
+        // Se guarda el valor tal como está definido, aunque la planilla use otras mayúsculas o tildes.
+        const permitido = def.valores.find((v) => comparable(v) === comparable(texto));
+        if (permitido) valores[clave] = permitido;
+        else errores.push(`${def.etiqueta} "${texto}" no es válido (valores: ${def.valores.join(', ')})`);
       } else valores[clave] = texto;
     }
   }
@@ -53,11 +59,23 @@ export function validarAtributos(
   return { valores, errores };
 }
 
+/** Envases (DS 12): subcategorías que corresponden a cada clasificación, según la especificación. */
+const SUBCATEGORIAS_ENVASES: Record<string, string[]> = {
+  Domiciliario: ['Cartón para líquidos', 'Metal', 'Papel y cartón', 'Plástico', 'Vidrio'],
+  'No domiciliario': ['Metal', 'Papel y cartón', 'Plástico', 'Madera'],
+};
+
 /**
  * Reglas propias de cada producto prioritario que no bloquean la carga, pero conviene revisar.
  * Neumáticos (DS 8/2019): Categoría A = aro menor a 57"; Categoría B = aro de 57" o más.
+ * Envases: la subcategoría debe existir para la clasificación (ej: Vidrio solo es Domiciliario).
  */
 export function advertenciasPrograma(programaId: string, atributos: Record<string, ValorAtributo>): string[] {
+  const clase = String(atributos['clase'] ?? '');
+  const material = String(atributos['material'] ?? '');
+  if (programaId === 'env' && SUBCATEGORIAS_ENVASES[clase] && material && !SUBCATEGORIAS_ENVASES[clase].includes(material)) {
+    return [`Subcategoría ${material} no corresponde a envases ${clase} (permitidas: ${SUBCATEGORIAS_ENVASES[clase].join(', ')})`];
+  }
   if (programaId === 'neu' && typeof atributos['aro'] === 'number' && atributos['categoria']) {
     const esperada = atributos['aro'] >= 57 ? 'Categoría B' : 'Categoría A';
     if (atributos['categoria'] !== esperada) {

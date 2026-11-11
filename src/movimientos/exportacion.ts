@@ -30,7 +30,8 @@ const celda = (v: unknown) => {
 export function generarCsv(programa: DefinicionPrograma, filas: FilaExport[]): string {
   const defs = programa.definicionAtributos;
   const encabezado = [
-    'ID_Registro', 'ID_Origen', 'Fecha_Introduccion', 'Año_Comercial', 'DIN', 'SKU', 'Componente',
+    // Neumáticos declara con la DIN; envases con la factura de venta.
+    'ID_Registro', 'ID_Origen', 'Fecha_Introduccion', 'Año_Comercial', programa.baseCalculo === 'venta' ? 'Factura' : 'DIN', 'SKU', 'Componente',
     ...defs.map((d) => d.etiqueta),
     'Sucursal', 'Peso_Unitario_KG', 'Unidades', 'Kilos_Introducidos', 'Toneladas_Introducidas',
   ];

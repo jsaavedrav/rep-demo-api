@@ -11,7 +11,7 @@ export class ProgramasRepository {
 
   async listar(): Promise<DefinicionPrograma[]> {
     const r = await (await this.db.request()).query(`
-      SELECT p.id, p.nombre, p.orden, p.configurado, p.agrupador, p.desglose,
+      SELECT p.id, p.nombre, p.orden, p.configurado, p.agrupador, p.desglose, p.base_calculo,
              a.clave, a.etiqueta, a.tipo, a.obligatorio, a.valores
       FROM rep.programa p
       LEFT JOIN rep.programa_atributo a ON a.programa_id = p.id
@@ -21,7 +21,8 @@ export class ProgramasRepository {
     for (const f of r.recordset) {
       const p: DefinicionPrograma = programas.get(f.id) ?? {
         id: f.id, nombre: f.nombre, orden: f.orden, configurado: f.configurado,
-        agrupador: f.agrupador ?? '', desglose: f.desglose ?? '', atributos: {}, definicionAtributos: [],
+        agrupador: f.agrupador ?? '', desglose: f.desglose ?? '', baseCalculo: f.base_calculo,
+        atributos: {}, definicionAtributos: [],
       };
       if (f.clave) {
         p.atributos[f.clave] = f.etiqueta;
