@@ -49,11 +49,12 @@ WHEN NOT MATCHED BY TARGET THEN INSERT (perfil_codigo, permiso_codigo) VALUES (s
 WHEN NOT MATCHED BY SOURCE THEN DELETE;
 
 /* Los 6 productos prioritarios de la Ley REP. "configurado" = ya tiene atributos y puede usarse.
+   orden = posición en el selector; el primero disponible es el que se abre por defecto (neumáticos).
    base_calculo = movimientos que forman la línea base: DIN en neumáticos, ventas en envases y AEE. */
 MERGE rep.programa AS t
 USING (VALUES
-  ('env', N'Envases y embalajes',                        1, 1, 'clase',     'material',     'venta'),
-  ('neu', N'Neumáticos',                                 2, 1, 'categoria', 'subcategoria', 'importacion'),
+  ('neu', N'Neumáticos',                                 1, 1, 'categoria', 'subcategoria', 'importacion'),
+  ('env', N'Envases y embalajes',                        2, 1, 'clase',     'material',     'venta'),
   ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 1, 'linea',     'categoria',    'venta'),
   ('ayl', N'Aceites y lubricantes',                      4, 0, NULL,        NULL,           'importacion'),
   ('bat', N'Baterías',                                   5, 0, NULL,        NULL,           'importacion'),

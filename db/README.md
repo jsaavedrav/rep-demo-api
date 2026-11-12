@@ -10,6 +10,7 @@
 | `06-migracion-importaciones-ventas.sql` | Solo para bases creadas antes de noviembre 2026: separa importaciones DIN y ventas, pesos con 7 decimales y atributos de envases. Ejecutar como script (separado por `GO`). |
 | `07-limpiar-envases-ejemplo.sql` | Solo demo: borra todo lo cargado en envases, para recargar los datos de ejemplo con 03. |
 | `08-configurar-aee.sql` | Solo para bases creadas antes de noviembre 2026: activa Pilas y AEE (línea base por ventas, atributos Línea y Categoría). Después, 03 carga sus datos de ejemplo. |
+| `09-orden-neumaticos.sql` | Solo para bases creadas antes de noviembre 2026: Neumáticos primero en el selector y por defecto. |
 
 Los scripts son **idempotentes** (se pueden correr más de una vez) y están probados en SQL Server 2022. En local los ejecuta `docker compose` automáticamente (ver el README principal).
 
