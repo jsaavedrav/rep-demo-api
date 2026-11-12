@@ -49,12 +49,12 @@ WHEN NOT MATCHED BY TARGET THEN INSERT (perfil_codigo, permiso_codigo) VALUES (s
 WHEN NOT MATCHED BY SOURCE THEN DELETE;
 
 /* Los 6 productos prioritarios de la Ley REP. "configurado" = ya tiene atributos y puede usarse.
-   base_calculo = movimientos que forman la línea base: DIN en neumáticos, ventas en envases. */
+   base_calculo = movimientos que forman la línea base: DIN en neumáticos, ventas en envases y AEE. */
 MERGE rep.programa AS t
 USING (VALUES
   ('env', N'Envases y embalajes',                        1, 1, 'clase',     'material',     'venta'),
   ('neu', N'Neumáticos',                                 2, 1, 'categoria', 'subcategoria', 'importacion'),
-  ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 0, NULL,        NULL,           'importacion'),
+  ('aee', N'Pilas, artículos eléctricos y electrónicos', 3, 1, 'linea',     'categoria',    'venta'),
   ('ayl', N'Aceites y lubricantes',                      4, 0, NULL,        NULL,           'importacion'),
   ('bat', N'Baterías',                                   5, 0, NULL,        NULL,           'importacion'),
   ('tex', N'Textiles',                                   6, 0, NULL,        NULL,           'importacion')
@@ -70,6 +70,8 @@ USING (VALUES
   ('env', 'tipo',         N'Tipo de envase', 1, 'texto', 1, N'["Primario","Secundario","Terciario"]'),
   ('env', 'clase',        N'Clasificación',  2, 'texto', 1, N'["Domiciliario","No domiciliario"]'),
   ('env', 'material',     N'Subcategoría',   3, 'texto', 1, N'["Cartón para líquidos","Metal","Papel y cartón","Plástico","Vidrio","Madera"]'),
+  ('aee', 'linea',        N'Línea',          1, 'texto', 1, N'["Equipos","Pilas"]'),
+  ('aee', 'categoria',    N'Categoría',      2, 'texto', 1, N'["Aparatos de intercambio de temperatura","Monitores, pantallas y aparatos con pantallas","Lámparas","Grandes aparatos (Dimensión > 50 cm)","Pequeños aparatos (Dimensión ≤ 50 cm)","Aparatos de informática y telecomunicaciones pequeños","Batería Recargable (Litio, Níquel)","Pila Botón","Pila Estándar (AA, AAA, C, D)"]'),
   ('neu', 'marca',        N'Marca',        1, 'texto',  1, NULL),
   ('neu', 'tipo',         N'Tipo',         2, 'texto',  1, N'["Radial","Diagonal","Macizo"]'),
   ('neu', 'categoria',    N'Categoría',    3, 'texto',  1, N'["Categoría A","Categoría B"]'),

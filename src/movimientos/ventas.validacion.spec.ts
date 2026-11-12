@@ -75,6 +75,15 @@ describe('advertenciasPrograma (envases)', () => {
   });
 });
 
+describe('advertenciasPrograma (pilas y AEE)', () => {
+  it('avisa si la categoría no corresponde a la línea', () => {
+    expect(advertenciasPrograma('aee', { linea: 'Pilas', categoria: 'Lámparas' })).toHaveLength(1);
+    expect(advertenciasPrograma('aee', { linea: 'Equipos', categoria: 'Pila Botón' })).toHaveLength(1);
+    expect(advertenciasPrograma('aee', { linea: 'Pilas', categoria: 'Pila Botón' })).toHaveLength(0);
+    expect(advertenciasPrograma('aee', { linea: 'Equipos', categoria: 'Lámparas' })).toHaveLength(0);
+  });
+});
+
 describe('validarVentas', () => {
   it('acepta un SKU nuevo completo y arma su plan', () => {
     const r = validarVentas(neu, [fila({ pesoKg: 8.5, descripcion: 'Auto 16' })], sinExistentes);

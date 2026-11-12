@@ -65,16 +65,27 @@ const SUBCATEGORIAS_ENVASES: Record<string, string[]> = {
   'No domiciliario': ['Metal', 'Papel y cartón', 'Plástico', 'Madera'],
 };
 
+/** Pilas y AEE: tipos de pila integrada; el resto de las categorías son de equipos. */
+const TIPOS_PILA = ['Batería Recargable (Litio, Níquel)', 'Pila Botón', 'Pila Estándar (AA, AAA, C, D)'];
+
 /**
  * Reglas propias de cada producto prioritario que no bloquean la carga, pero conviene revisar.
  * Neumáticos (DS 8/2019): Categoría A = aro menor a 57"; Categoría B = aro de 57" o más.
  * Envases: la subcategoría debe existir para la clasificación (ej: Vidrio solo es Domiciliario).
+ * Pilas y AEE: la línea Pilas usa un tipo de pila como categoría; la línea Equipos, una categoría de aparato.
  */
 export function advertenciasPrograma(programaId: string, atributos: Record<string, ValorAtributo>): string[] {
   const clase = String(atributos['clase'] ?? '');
   const material = String(atributos['material'] ?? '');
   if (programaId === 'env' && SUBCATEGORIAS_ENVASES[clase] && material && !SUBCATEGORIAS_ENVASES[clase].includes(material)) {
     return [`Subcategoría ${material} no corresponde a envases ${clase} (permitidas: ${SUBCATEGORIAS_ENVASES[clase].join(', ')})`];
+  }
+  const linea = atributos['linea'];
+  const categoria = String(atributos['categoria'] ?? '');
+  if (programaId === 'aee' && linea && categoria && (linea === 'Pilas') !== TIPOS_PILA.includes(categoria)) {
+    return [linea === 'Pilas'
+      ? `Una pila debe tener como categoría un tipo de pila (${TIPOS_PILA.join(', ')}), no "${categoria}"`
+      : `"${categoria}" es un tipo de pila: corresponde a la línea Pilas, no ${linea}`];
   }
   if (programaId === 'neu' && typeof atributos['aro'] === 'number' && atributos['categoria']) {
     const esperada = atributos['aro'] >= 57 ? 'Categoría B' : 'Categoría A';
