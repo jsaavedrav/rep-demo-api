@@ -1,8 +1,11 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Reflector } from '@nestjs/core';
+import { trace } from '@opentelemetry/api';
 import type { Request } from 'express';
 import { Permiso } from '../dominio/models.js';
+import { contextoActual, nombrarSolicitud } from '../observabilidad/contexto.js';
+import { registrarEvento } from '../observabilidad/eventos.js';
 import { UsuariosRepository } from '../usuarios/usuarios.repository.js';
 import { PERMISOS, PUBLICO, UsuarioActual } from './decoradores.js';
 import { VerificadorToken } from './verificador-token.js';
@@ -26,6 +29,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const destino = [ctx.getHandler(), ctx.getClass()];
+    nombrarSolicitud(ctx.switchToHttp().getRequest());
     if (this.reflector.getAllAndOverride<boolean>(PUBLICO, destino)) return true;
 
     const req = ctx.switchToHttp().getRequest<Request & { usuario?: UsuarioActual }>();
@@ -33,14 +37,23 @@ export class AuthGuard implements CanActivate {
 
     const usuario = await this.usuarios.buscarActivoPorEmail(email);
     if (!usuario) {
+      // El correo queda solo en el log (sirve para dar acceso); el evento cuenta los intentos.
       this.logger.warn(`Acceso denegado: ${email} no está activo en rep.usuario`);
+      registrarEvento('acceso.denegado', { motivo: 'usuario_no_activo' });
       throw new ForbiddenException('El usuario no tiene acceso a la aplicación');
     }
     req.usuario = usuario;
+    // Identifica al usuario en logs y trazas por su id interno, no por el correo.
+    const solicitud = contextoActual();
+    if (solicitud) solicitud.usuarioId = usuario.id;
+    trace.getActiveSpan()?.setAttribute('enduser.id', usuario.id);
 
     const requeridos = this.reflector.getAllAndOverride<Permiso[] | undefined>(PERMISOS, destino) ?? [];
     const faltan = requeridos.filter((p) => !usuario.permisos.includes(p));
-    if (faltan.length) throw new ForbiddenException(`Requiere permiso: ${faltan.join(', ')}`);
+    if (faltan.length) {
+      registrarEvento('acceso.denegado', { motivo: 'sin_permiso', permisos: faltan.join(',') });
+      throw new ForbiddenException(`Requiere permiso: ${faltan.join(', ')}`);
+    }
     return true;
   }
 

@@ -3,6 +3,7 @@ import { exigirAcceso } from '../auth/acceso.js';
 import { UsuarioActual } from '../auth/decoradores.js';
 import { ResultadoImportacionVentas } from '../dominio/models.js';
 import { rechazarSiHayErrores, validarCantidad } from '../importacion.js';
+import { cronometro, registrarEvento } from '../observabilidad/eventos.js';
 import { ProgramasRepository } from '../programas/programas.repository.js';
 import { MovimientosRepository } from './movimientos.repository.js';
 import { FilaVentaDto } from './ventas.dto.js';
@@ -26,7 +27,9 @@ export class MovimientosService {
     exigirAcceso(usuario, programaId);
     const programa = await this.programas.obtener(programaId);
     if (!programa) throw new BadRequestException(`Programa "${programaId}" no existe`);
-    return generarCsv(programa, await this.movimientos.exportar(programaId));
+    const filas = await this.movimientos.exportar(programaId);
+    registrarEvento('exportacion.csv', { programa: programaId, filas: filas.length });
+    return generarCsv(programa, filas);
   }
 
   /**
@@ -34,6 +37,7 @@ export class MovimientosService {
    * no se guarda ninguna. Las advertencias no bloquean y se devuelven en la respuesta.
    */
   async importarVentas(filas: FilaVentaDto[], usuario: UsuarioActual): Promise<ResultadoImportacionVentas> {
+    const duracion = cronometro();
     validarCantidad(filas);
     const programaId = filas[0].programaId;
     exigirAcceso(usuario, programaId);
@@ -44,9 +48,24 @@ export class MovimientosService {
 
     const existentes = await this.movimientos.componentesDe(programaId, filas.map((f) => f.sku));
     const v = validarVentas(programa, filas, existentes);
+    const tipo = filas[0].tipo;
+    if (v.errores.length) {
+      registrarEvento('importacion.rechazada', { programa: programaId, tipo, filas: filas.length, errores: v.errores.length });
+    }
     rechazarSiHayErrores(v.errores);
 
     const r = await this.movimientos.importarVentas(programaId, filas, v.skus, usuario.id);
+    registrarEvento('importacion.movimientos', {
+      programa: programaId,
+      tipo,
+      filas: filas.length,
+      creados: r.creados,
+      actualizados: r.actualizados,
+      skusNuevos: r.skusNuevos,
+      pendientesPeso: r.pendientesPeso.length,
+      advertencias: v.advertencias.length,
+      duracionMs: duracion(),
+    });
     return { ...r, advertencias: v.advertencias };
   }
 }

@@ -20,6 +20,7 @@ src/
 ├── auth/                     AuthGuard (sesión + permisos), @RequierePermiso(), @Publico(), @UsuarioAutenticado()
 ├── database/                 pool de conexiones a SQL (cadena de conexión o Managed Identity)
 ├── dominio/models.ts         modelos compartidos con el frontend (misma forma JSON)
+├── observabilidad/           telemetría (Application Insights), logs JSON, requestId, filtro de errores, eventos
 ├── importacion.ts            reglas comunes de importación (máx. filas, todo o nada)
 ├── usuarios/  programas/     controller → repository  (lecturas simples)
 ├── skus/  movimientos/       controller → service → repository  (con reglas de negocio)
@@ -151,6 +152,8 @@ Requisitos: tu cuenta debe ser *Microsoft Entra admin* del servidor (o un usuari
 | `CORS_ORIGINS` | Orígenes del front autorizados, separados por coma. |
 | `DEV_USER_EMAIL` | Usuario simulado cuando la petición llega sin token (solo desarrollo; se ignora con `NODE_ENV=production`). |
 | `PORT` | Puerto HTTP (por defecto 3000). |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Activa la telemetría hacia Application Insights. Sin ella (local) no se envía nada. En Azure va como secreto. |
+| `LOG_JSON` | `1` para logs JSON también en local (con `NODE_ENV=production` siempre lo son). |
 
 ## Despliegue en Azure (costo cero)
 
@@ -160,7 +163,9 @@ Recursos actuales, todos en el grupo `rg-rep-demo`:
 |---|---|---|
 | App en Microsoft Entra ID | `rep-demo` (client ID `b298bb74-9588-41c9-89fc-7034f0b388c0`) | Emite los JWT. Acepta cualquier cuenta Microsoft; quién entra lo decide `rep.usuario`. Scope `api://<client-id>/access_as_user`. |
 | Imagen | `ghcr.io/jsaavedrav/rep-demo-api` (pública) | La publica el workflow `.github/workflows/imagen.yml` en cada push a `main`, después de correr las pruebas. |
-| Entorno de Container Apps | `cae-rep-demo` (Brazil South) | Sin destino de logs (costo cero). |
+| Entorno de Container Apps | `cae-rep-demo` (Brazil South) | Logs de consola y de sistema en `log-rep-demo`. |
+| Log Analytics | `log-rep-demo` | Retención 30 días, tope diario de 0,1 GB (el cupo gratis es 5 GB/mes). |
+| Application Insights | `appi-rep-demo` | Usa el workspace `log-rep-demo`. Recibe solicitudes, consultas SQL, excepciones y eventos. |
 | Container App | `rep-api` | `https://rep-api.lemondesert-1bad17fd.brazilsouth.azurecontainerapps.io`. Escala a cero; identidad asignada por el sistema. |
 | Usuario SQL | `rep-api` | Creado por SID para la identidad de la Container App; solo lectura y escritura sobre el esquema `rep`. |
 
@@ -191,7 +196,59 @@ Recursos actuales, todos en el grupo `rg-rep-demo`:
    GRANT SELECT, INSERT, UPDATE, DELETE ON SCHEMA::rep TO [rep-api];
    ```
 
-**Costos:** la Container App queda dentro del cupo gratuito mensual de Container Apps, la imagen en GHCR es gratis, el entorno no envía logs y la base usa la oferta gratuita. Conviene una alerta de presupuesto en *Cost Management → Budgets*.
+5. **Observabilidad:**
+   ```bash
+   az monitor log-analytics workspace create -g rg-rep-demo -n log-rep-demo -l brazilsouth --retention-time 30 --quota 0.1
+   ```
+   ```bash
+   az monitor app-insights component create -g rg-rep-demo --app appi-rep-demo -l brazilsouth --kind web --application-type Node.JS --workspace log-rep-demo
+   ```
+   ```bash
+   az containerapp env update -n cae-rep-demo -g rg-rep-demo --logs-destination log-analytics --logs-workspace-id <customerId del workspace> --logs-workspace-key <clave primaria>
+   ```
+   ```bash
+   az containerapp secret set -n rep-api -g rg-rep-demo --secrets appinsights-cs=<connection string de appi-rep-demo>
+   ```
+   ```bash
+   az containerapp update -n rep-api -g rg-rep-demo --set-env-vars APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-cs
+   ```
+
+**Costos:** la Container App queda dentro del cupo gratuito mensual de Container Apps, la imagen en GHCR es gratis y la base usa la oferta gratuita. Log Analytics y Application Insights cobran por GB ingerido sobre 5 GB/mes; el tope diario de 0,1 GB deja el uso muy por debajo (si se alcanza, se deja de registrar hasta el día siguiente). Conviene una alerta de presupuesto en *Cost Management → Budgets*.
+
+## Observabilidad
+
+- **Logs:** en Azure cada línea es JSON con `level`, `context`, `message`, `requestId` y `usuarioId` (id de `rep.usuario`, no el correo). Al terminar cada solicitud queda una línea `HTTP` con método, ruta, estado y duración. Se consultan en Log Analytics, tabla `ContainerAppConsoleLogs_CL`.
+- **requestId:** se devuelve en el header `x-request-id` y en los errores 500 ("Código de seguimiento"). Es el mismo `operation_Id` de Application Insights: con él se encuentra todo lo que pasó en esa solicitud.
+- **Trazas (Application Insights):** solicitudes por endpoint (`requests`), consultas SQL (`dependencies`), errores no controlados con su stack (`exceptions`). El health check no se registra.
+- **Eventos de negocio (`customEvents`):** `importacion.movimientos`, `importacion.catalogo`, `importacion.rechazada`, `exportacion.csv`, `peso.actualizado`, `acceso.denegado`.
+- **Errores 500:** el usuario recibe un mensaje genérico con el código de seguimiento; el detalle (SQL, stack) queda solo en los logs.
+
+Consultas útiles (Log Analytics → Logs):
+
+```kusto
+// Todo lo que pasó en una solicitud (pegar el código de seguimiento)
+union AppRequests, AppDependencies, AppExceptions, AppEvents
+| where OperationId == "<requestId>" | order by TimeGenerated asc
+```
+```kusto
+// Errores de hoy
+AppExceptions | where TimeGenerated > startofday(now()) | project TimeGenerated, OperationId, ProblemId, OuterMessage
+```
+```kusto
+// Endpoints más lentos (últimos 7 días)
+AppRequests | where TimeGenerated > ago(7d) | summarize n = count(), p95_ms = percentile(DurationMs, 95) by Name | order by p95_ms desc
+```
+```kusto
+// Importaciones por programa
+AppEvents | where Name startswith "importacion" | extend p = tostring(Properties.programa), filas = toint(Properties.filas)
+| summarize veces = count(), filas = sum(filas) by Name, p
+```
+```kusto
+// Logs de la API (consola)
+ContainerAppConsoleLogs_CL | where ContainerAppName_s == "rep-api" | extend l = parse_json(Log_s)
+| project TimeGenerated, nivel = tostring(l.level), ctx = tostring(l.context), msg = tostring(l.message), requestId = tostring(l.requestId)
+| order by TimeGenerated desc
+```
 
 ## Próximos pasos sugeridos
 - **Integración SAP:** un *Container Apps Job* programado con la misma imagen, que llame a `SkusService` / `MovimientosService` (mismas validaciones que el Excel).
